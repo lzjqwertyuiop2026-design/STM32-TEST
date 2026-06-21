@@ -1,52 +1,78 @@
-# STM32F103ZET6 凤凰开发板
+# STM32F103ZET6 Phoenix Board
 
-MCU:
-STM32F103ZET6
+Project: final_test_2
 
-Clock:
-HSE = 8MHzgit
-SYSCLK = 72MHz
+This board definition is based on the confirmed hardware information and the
+current project source code. Do not use older board notes as the source of
+truth.
 
-LED
+## Confirmed Hardware
 
-LED1 -> PD13
-LED2 -> PD14
+### MCU
 
-KEY
+- Part: STM32F103ZET6
+- Package: LQFP144
+- Flash: 512 KB, high-density device
+- RAM: 64 KB
 
-KEY0 -> PE4
-KEY1 -> PE3
-WKUP -> PA0
+### Debug And Download
 
-BEEP
+- Debug interface: SWD
+- Downloader: CMSIS-DAP
+- Interface: SWD
+- Max clock: 100 kHz
+- Connect mode: Normal
+- Flash algorithm: STM32F10x High-density Flash 512k
 
-BEEP -> PB8
+### LED
 
-USART1
+- LED0: PB5
+- LED1: PE5
+- Active level in current source: low level on
 
-TX -> PA9
-RX -> PA10
+### KEY
 
-SPI FLASH
+- WKUP: PA0
+- KEY0: PE4
+- KEY1: PE3
 
-CS -> PB12
-SCK -> PB13
-MISO -> PB14
-MOSI -> PB15
+## Current Project Configuration
 
-EEPROM
+### Clock
 
-SCL -> PB6
-SDA -> PB7
+- Current SYSCLK source in source code: HSI
+- Current SYSCLK frequency in source code: 8 MHz
+- PLL: disabled
+- HSE value defined by HAL configuration: 8 MHz
+- HSE pins appear in CubeMX configuration, but HSE is not used by
+  `SystemClock_Config()` in the current source code.
 
-NRF24L01
+### GPIO Usage In Source
 
-CE -> PG6
-CSN -> PG7
-SCK -> PB13
-MISO -> PB14
-MOSI -> PB15
+- LED0 PB5: output push-pull
+- LED1 PE5: output push-pull
+- WKUP PA0: input with pull-down, active high
+- KEY0 PE4: input with pull-up, active low
+- KEY1 PE3: input with pull-up, active low
 
-TFT LCD
+## Confirmed Resources
 
-FSMC Interface
+- RCC: present in CubeMX configuration and source code
+- SYSCLK: present; currently HSI 8 MHz
+- HSE: value and pins present; not used as current SYSCLK source
+- LED: present; LED0 PB5, LED1 PE5
+- KEY: present; WKUP PA0, KEY0 PE4, KEY1 PE3
+- SWD: present; PA13/PA14 Serial Wire, JTAG disabled and SWD kept enabled
+
+## Resources To Confirm
+
+The following resources are not configured or not used by the current
+application source code:
+
+- USART
+- SPI
+- I2C
+- BEEP
+
+Before adding these peripherals, confirm their exact board pins and update the
+CubeMX `.ioc` file and source code together.

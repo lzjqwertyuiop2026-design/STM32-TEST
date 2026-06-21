@@ -50,6 +50,7 @@
 #define BUTTON_ACTIVE_LOW  GPIO_PIN_RESET
 
 #define DEBOUNCE_MS 20u
+#define BLINK_INTERVAL_MS 500u
 
 /* USER CODE END PD */
 
@@ -61,6 +62,22 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+typedef enum
+{
+  APP_MODE_AUTO_BLINK = 0u,
+  APP_MODE_MANUAL
+} AppMode_t;
+
+typedef struct
+{
+  GPIO_TypeDef *GPIOx;
+  uint16_t GPIO_Pin;
+  GPIO_PinState activeState;
+  GPIO_PinState stableState;
+  GPIO_PinState lastSample;
+  uint32_t lastChangeTick;
+  uint8_t pressLatched;
+} Button_t;
 
 /* USER CODE END PV */
 
@@ -70,7 +87,8 @@ static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
 static void USER_GPIO_Init(void);
 static void LED_Set(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, uint8_t on);
-static uint8_t ButtonScan(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState activeState);
+static void Button_Init(Button_t *button, GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState activeState);
+static uint8_t Button_Update(Button_t *button);
 
 /* USER CODE END PFP */
 
@@ -115,44 +133,57 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    uint32_t lastBlink = HAL_GetTick();
-    uint8_t blinkPhase = 0;
-    uint8_t invert0 = 0;
-    uint8_t invert1 = 0;
+    AppMode_t appMode = APP_MODE_AUTO_BLINK;
+    uint32_t lastBlinkTick = HAL_GetTick();
+    uint8_t blinkPhase = 0u;
+    uint8_t led0On = 1u;
+    uint8_t led1On = 0u;
+    Button_t wkupButton;
+    Button_t key0Button;
+    Button_t key1Button;
 
-    LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, 1);
-    LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, 0);
+    Button_Init(&wkupButton, WKUP_GPIO_PORT, WKUP_GPIO_PIN, BUTTON_ACTIVE_HIGH);
+    Button_Init(&key0Button, KEY0_GPIO_PORT, KEY0_GPIO_PIN, BUTTON_ACTIVE_LOW);
+    Button_Init(&key1Button, KEY1_GPIO_PORT, KEY1_GPIO_PIN, BUTTON_ACTIVE_LOW);
+
+    LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, led0On);
+    LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, led1On);
 
     while (1)
     {
       uint32_t now = HAL_GetTick();
 
-      if ((now - lastBlink) >= 500u)
+      if ((appMode == APP_MODE_AUTO_BLINK) && ((now - lastBlinkTick) >= BLINK_INTERVAL_MS))
       {
-        lastBlink = now;
+        lastBlinkTick = now;
         blinkPhase ^= 1u;
-        LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, ((blinkPhase == 0u) ^ invert0));
-        LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, ((blinkPhase == 1u) ^ invert1));
+        led0On = (blinkPhase == 0u);
+        led1On = (blinkPhase == 1u);
+        LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, led0On);
+        LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, led1On);
       }
 
-      if (ButtonScan(WKUP_GPIO_PORT, WKUP_GPIO_PIN, BUTTON_ACTIVE_HIGH))
+      if (Button_Update(&wkupButton))
       {
-        invert0 ^= 1u;
-        LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, ((blinkPhase == 0u) ^ invert0));
+        appMode = APP_MODE_MANUAL;
+        led0On ^= 1u;
+        LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, led0On);
       }
 
-      if (ButtonScan(KEY0_GPIO_PORT, KEY0_GPIO_PIN, BUTTON_ACTIVE_LOW))
+      if (Button_Update(&key0Button))
       {
-        invert1 ^= 1u;
-        LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, ((blinkPhase == 1u) ^ invert1));
+        appMode = APP_MODE_MANUAL;
+        led1On ^= 1u;
+        LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, led1On);
       }
 
-      if (ButtonScan(KEY1_GPIO_PORT, KEY1_GPIO_PIN, BUTTON_ACTIVE_LOW))
+      if (Button_Update(&key1Button))
       {
-        invert0 ^= 1u;
-        invert1 ^= 1u;
-        LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, ((blinkPhase == 0u) ^ invert0));
-        LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, ((blinkPhase == 1u) ^ invert1));
+        appMode = APP_MODE_MANUAL;
+        led0On ^= 1u;
+        led1On ^= 1u;
+        LED_Set(LED0_GPIO_PORT, LED0_GPIO_PIN, led0On);
+        LED_Set(LED1_GPIO_PORT, LED1_GPIO_PIN, led1On);
       }
     }
   /* USER CODE END WHILE */
@@ -254,26 +285,59 @@ static void LED_Set(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, uint8_t on)
   HAL_GPIO_WritePin(GPIOx, GPIO_Pin, on ? LED_ON : LED_OFF);
 }
 
-static uint8_t ButtonScan(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState activeState)
+static void Button_Init(Button_t *button, GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState activeState)
 {
-  if (HAL_GPIO_ReadPin(GPIOx, GPIO_Pin) != activeState)
+  GPIO_PinState pinState = HAL_GPIO_ReadPin(GPIOx, GPIO_Pin);
+
+  button->GPIOx = GPIOx;
+  button->GPIO_Pin = GPIO_Pin;
+  button->activeState = activeState;
+  button->stableState = pinState;
+  button->lastSample = pinState;
+  button->lastChangeTick = HAL_GetTick();
+  button->pressLatched = (pinState == activeState);
+}
+
+static uint8_t Button_Update(Button_t *button)
+{
+  GPIO_PinState sample = HAL_GPIO_ReadPin(button->GPIOx, button->GPIO_Pin);
+  uint32_t now = HAL_GetTick();
+
+  if (sample != button->lastSample)
+  {
+    button->lastSample = sample;
+    button->lastChangeTick = now;
+  }
+
+  if ((now - button->lastChangeTick) < DEBOUNCE_MS)
   {
     return 0u;
   }
 
-  HAL_Delay(DEBOUNCE_MS);
-  if (HAL_GPIO_ReadPin(GPIOx, GPIO_Pin) != activeState)
+  if (sample != button->stableState)
   {
-    return 0u;
+    button->stableState = sample;
+
+    if (button->stableState == button->activeState)
+    {
+      if (button->pressLatched == 0u)
+      {
+        button->pressLatched = 1u;
+        return 1u;
+      }
+    }
+    else
+    {
+      button->pressLatched = 0u;
+    }
   }
 
-  while (HAL_GPIO_ReadPin(GPIOx, GPIO_Pin) == activeState)
+  if (button->stableState != button->activeState)
   {
-    HAL_Delay(10u);
+    button->pressLatched = 0u;
   }
 
-  HAL_Delay(DEBOUNCE_MS);
-  return 1u;
+  return 0u;
 }
 /* USER CODE END 4 */
 

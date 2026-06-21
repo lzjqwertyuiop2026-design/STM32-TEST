@@ -430,3 +430,41 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# STM32 build outputs
+build/
+Debug/
+Objects/
+Listings/
+*.elf
+*.hex
+*.bin
+*.map
+*.d
+*.o
+
+# Keil uVision local/generated files
+DebugConfig/
+EventRecorderStub.scvd
+*.uvguix.*
+*.uvoptx
+*.uvmpw
+*.uvgui.*
+keil flash.uvprojx
+JLinkLog.txt
+
+# Temporary screenshots and captures
+*.png.tmp
+*.jpg.tmp
+*.jpeg.tmp
+*.bmp.tmp
+*.gif.tmp
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# OS/editor temporary files
+Thumbs.db
+Desktop.ini
+.DS_Store
