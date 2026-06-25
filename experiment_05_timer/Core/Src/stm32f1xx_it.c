@@ -205,12 +205,20 @@ void SysTick_Handler(void)
 /* USER CODE BEGIN 1 */
 void TIM2_IRQHandler(void)
 {
-  HAL_TIM_IRQHandler(&htim2);
+  if ((TIM2->SR & TIM_SR_UIF) != 0U)
+  {
+    TIM2->SR = (uint16_t)~TIM_SR_UIF;
+    USER_TIM2_UpdateIRQ();
+  }
 }
 
 void TIM3_IRQHandler(void)
 {
-  HAL_TIM_IRQHandler(&htim3);
+  if ((TIM3->SR & TIM_SR_UIF) != 0U)
+  {
+    TIM3->SR = (uint16_t)~TIM_SR_UIF;
+    USER_TIM3_UpdateIRQ();
+  }
 }
 
 void TIM5_IRQHandler(void)

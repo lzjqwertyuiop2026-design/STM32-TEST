@@ -53,6 +53,8 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void USER_TIM2_UpdateIRQ(void);
+void USER_TIM3_UpdateIRQ(void);
 
 /* USER CODE END EFP */
 

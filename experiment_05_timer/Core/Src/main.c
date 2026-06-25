@@ -70,6 +70,7 @@ static uint32_t tim3UpdateCounter;
 static uint32_t tim3BreathTickCounter;
 static uint32_t lowPulseStartUs;
 static uint32_t lastLowPulseWidthUs;
+static uint16_t led0BreathPwmCounter;
 static uint16_t led0BreathPulse;
 static int16_t led0BreathStep = 2;
 /* USER CODE END PV */
@@ -86,7 +87,6 @@ static void USER_TIM5_Init(void);
 static void USER_TIM5_SetCapturePolarity(uint32_t polarity);
 static void USER_LED0_SetState(uint8_t pinState);
 static void USER_LED0_ApplyGpioMode(void);
-static void USER_LED0_ApplyPwmMode(void);
 static void USER_SetLed0BreathingMode(bool enable);
 static void USER_ProcessSerialCommand(uint8_t rxData);
 static void USER_PrintStartupBanner(void);
@@ -115,19 +115,6 @@ static void USER_LED0_ApplyGpioMode(void)
   HAL_GPIO_WritePin(LED0_GPIO_PORT, LED0_GPIO_PIN, led0LogicState);
 }
 
-static void USER_LED0_ApplyPwmMode(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  __HAL_AFIO_REMAP_TIM3_PARTIAL();
-
-  GPIO_InitStruct.Pin = LED0_GPIO_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(LED0_GPIO_PORT, &GPIO_InitStruct);
-}
-
 static void USER_TIM5_SetCapturePolarity(uint32_t polarity)
 {
   __HAL_TIM_DISABLE_IT(&htim5, TIM_IT_CC1);
@@ -144,23 +131,21 @@ static void USER_SetLed0BreathingMode(bool enable)
 
   if (enable)
   {
-    USER_LED0_ApplyPwmMode();
-    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, led0BreathPulse);
-    if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2) != HAL_OK)
-    {
-      Error_Handler();
-    }
+    led0BreathPwmCounter = 0U;
+    led0BreathPulse = 0U;
+    led0BreathStep = 2;
+    tim3BreathTickCounter = 0U;
     led0BreathingEnabled = true;
-    printf("LED0 breathing mode enabled on PB5/TIM3_CH2.\r\n");
+    printf("LED0 software breathing mode enabled on PB5.\r\n");
   }
   else
   {
-    if (HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2) != HAL_OK)
-    {
-      Error_Handler();
-    }
+    led0BreathPwmCounter = 0U;
+    led0BreathPulse = 0U;
+    led0BreathStep = 2;
+    tim2UpdateCounter = TIM2_UPDATES_PER_LED0_TOGGLE - 1U;
     led0BreathingEnabled = false;
-    USER_LED0_ApplyGpioMode();
+    USER_LED0_SetState(LED_OFF);
     printf("LED0 returned to TIM2 0.5 s toggle mode.\r\n");
   }
 }
@@ -201,7 +186,7 @@ static void USER_PrintStartupBanner(void)
   printf("TIM2 CH3 on PB10 outputs 40 kHz PWM at 25%% duty.\r\n");
   printf("TIM2 update divider toggles LED0 every 0.5 s in normal mode.\r\n");
   printf("TIM3 update divider toggles LED1 every 1 s.\r\n");
-  printf("TIM3 CH2 on PB5 provides 8 kHz breathing PWM after command 'b'.\r\n");
+  printf("TIM3 interrupt provides software breathing PWM on PB5 after command 'b'.\r\n");
   printf("TIM5 CH1 on PA0 captures low pulse width and reports it over USART1.\r\n");
   printf("Commands: b=breathing, n=normal LED0, p=print last pulse width, h=help.\r\n");
   printf("Connect PB10 to PA0 with a jumper wire for the easiest self-test.\r\n");
@@ -510,44 +495,74 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM2)
   {
-    tim2UpdateCounter++;
-    if (tim2UpdateCounter >= TIM2_UPDATES_PER_LED0_TOGGLE)
-    {
-      tim2UpdateCounter = 0;
-      if (!led0BreathingEnabled)
-      {
-        USER_LED0_SetState((led0LogicState == LED_ON) ? LED_OFF : LED_ON);
-      }
-    }
+    USER_TIM2_UpdateIRQ();
   }
   else if (htim->Instance == TIM3)
   {
-    tim3UpdateCounter++;
-    if (tim3UpdateCounter >= TIM3_UPDATES_PER_LED1_TOGGLE)
+    USER_TIM3_UpdateIRQ();
+  }
+}
+
+void USER_TIM2_UpdateIRQ(void)
+{
+  tim2UpdateCounter++;
+  if (tim2UpdateCounter >= TIM2_UPDATES_PER_LED0_TOGGLE)
+  {
+    tim2UpdateCounter = 0;
+    if (!led0BreathingEnabled)
     {
-      tim3UpdateCounter = 0;
-      HAL_GPIO_TogglePin(LED1_GPIO_PORT, LED1_GPIO_PIN);
+      USER_LED0_SetState((led0LogicState == LED_ON) ? LED_OFF : LED_ON);
+    }
+  }
+}
+
+void USER_TIM3_UpdateIRQ(void)
+{
+  tim3UpdateCounter++;
+  if (tim3UpdateCounter >= TIM3_UPDATES_PER_LED1_TOGGLE)
+  {
+    tim3UpdateCounter = 0;
+    HAL_GPIO_TogglePin(LED1_GPIO_PORT, LED1_GPIO_PIN);
+  }
+
+  if (led0BreathingEnabled)
+  {
+    led0BreathPwmCounter++;
+    if (led0BreathPwmCounter > TIM3_PWM_PERIOD)
+    {
+      led0BreathPwmCounter = 0U;
     }
 
-    if (led0BreathingEnabled)
+    HAL_GPIO_WritePin(LED0_GPIO_PORT,
+                      LED0_GPIO_PIN,
+                      (led0BreathPwmCounter < led0BreathPulse) ? LED_ON : LED_OFF);
+
+    tim3BreathTickCounter++;
+    if (tim3BreathTickCounter >= TIM3_BREATH_STEP_TICKS)
     {
-      tim3BreathTickCounter++;
-      if (tim3BreathTickCounter >= TIM3_BREATH_STEP_TICKS)
+      int32_t nextPulse;
+
+      tim3BreathTickCounter = 0;
+
+      if ((led0BreathStep > 0) && (led0BreathPulse >= TIM3_PWM_PERIOD))
       {
-        tim3BreathTickCounter = 0;
-
-        if ((led0BreathStep > 0) && (led0BreathPulse >= TIM3_PWM_PERIOD))
-        {
-          led0BreathStep = -2;
-        }
-        else if ((led0BreathStep < 0) && (led0BreathPulse == 0U))
-        {
-          led0BreathStep = 2;
-        }
-
-        led0BreathPulse = (uint16_t)((int32_t)led0BreathPulse + led0BreathStep);
-        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, led0BreathPulse);
+        led0BreathStep = -2;
       }
+      else if ((led0BreathStep < 0) && (led0BreathPulse == 0U))
+      {
+        led0BreathStep = 2;
+      }
+
+      nextPulse = (int32_t)led0BreathPulse + led0BreathStep;
+      if (nextPulse < 0)
+      {
+        nextPulse = 0;
+      }
+      else if (nextPulse > TIM3_PWM_PERIOD)
+      {
+        nextPulse = TIM3_PWM_PERIOD;
+      }
+      led0BreathPulse = (uint16_t)nextPulse;
     }
   }
 }
