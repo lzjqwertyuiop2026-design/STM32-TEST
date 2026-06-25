@@ -1,16 +1,35 @@
-# STM32 实验工程总目录
+# STM32 Experiment Repository
 
-本仓库按实验目录组织 STM32CubeMX/HAL + CMake 工程。
+This repository stores STM32F103ZET6 laboratory projects in separate folders.
 
-## 实验目录
+## Experiments
 
-- `experiment_02_gpio/`：实验二 GPIO 控制实验
-- `experiment_03_exti/`：实验三 外部中断实验
+- `experiment_02_gpio/`: GPIO LED and key experiment.
+- `experiment_03_exti/`: External interrupt experiment.
+- `experiment_04_usart/`: USART communication experiment.
+- `experiment_05_timer/`: Timer, PWM and input capture experiment.
+- `final_temperature_adc_usart/`: ADC temperature, timer, GPIO and USART integrated project.
 
-每个实验目录内都有独立的 `README.md`、源码、CubeMX 配置文件和构建文件，可分别进入对应目录编译、烧录和查看实验说明。
+Each experiment folder is an independent STM32CubeMX/HAL + CMake/Makefile project.
 
-## 公共资料
+## Common Files
 
-- `BOARD.md`：开发板与引脚说明
-- `微机原理与单片机技术（Cortex-M3）实验指导书v4.0(1).docx`：实验指导书
-- `普中STM32-F103-凤凰开发板原理图.pdf`：开发板原理图
+- `BOARD.md`: board pin notes.
+- `微机原理与单片机技术（Cortex-M3）实验指导书v4.0(1).docx`: lab guide.
+- `普中STM32-F103-凤凰开发板原理图.pdf`: board schematic.
+
+## Common Commands
+
+Build inside an experiment folder:
+
+```powershell
+mingw32-make clean
+mingw32-make
+```
+
+Flash inside an experiment folder:
+
+```powershell
+pyocd load -t stm32f103ze --frequency 100000 build\firmware.elf
+```
+
