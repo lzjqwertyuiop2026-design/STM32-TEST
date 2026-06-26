@@ -9,6 +9,7 @@ This repository stores STM32F103ZET6 laboratory projects in separate folders.
 - `experiment_04_usart/`: USART communication experiment.
 - `experiment_05_timer/`: Timer, PWM and input capture experiment.
 - `experiment_06_adc/`: ADC voltage sampling experiment.
+- `experiment_07_dma/`: DMA USART transmit experiment.
 - `final_temperature_adc_usart/`: ADC temperature, timer, GPIO and USART integrated project.
 
 Each experiment folder is an independent STM32CubeMX/HAL + CMake/Makefile project.
