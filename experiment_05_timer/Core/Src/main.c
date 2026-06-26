@@ -48,6 +48,7 @@
 #define TIM3_BREATH_STEP_TICKS       80U
 
 #define TIM5_INPUT_CAPTURE_CHANNEL   TIM_CHANNEL_1
+#define TIM5_RISING_CAPTURE_CHANNEL  TIM_CHANNEL_2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -64,12 +65,13 @@ TIM_HandleTypeDef htim5;
 static uint8_t usart1RxData;
 static uint8_t led0LogicState = LED_OFF;
 static bool led0BreathingEnabled;
-static bool tim5WaitingForRisingEdge;
+static volatile bool tim5WaitingForRisingEdge;
+static volatile bool tim5PulseCaptured;
 static uint32_t tim2UpdateCounter;
 static uint32_t tim3UpdateCounter;
 static uint32_t tim3BreathTickCounter;
-static uint32_t lowPulseStartUs;
-static uint32_t lastLowPulseWidthUs;
+static volatile uint32_t lowPulseStartUs;
+static volatile uint32_t lastLowPulseWidthUs;
 static uint16_t led0BreathPwmCounter;
 static uint16_t led0BreathPulse;
 static int16_t led0BreathStep = 2;
@@ -84,7 +86,6 @@ static void USER_USART1_UART_Init(void);
 static void USER_TIM2_Init(void);
 static void USER_TIM3_Init(void);
 static void USER_TIM5_Init(void);
-static void USER_TIM5_SetCapturePolarity(uint32_t polarity);
 static void USER_LED0_SetState(uint8_t pinState);
 static void USER_LED0_ApplyGpioMode(void);
 static void USER_SetLed0BreathingMode(bool enable);
@@ -113,13 +114,6 @@ static void USER_LED0_ApplyGpioMode(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED0_GPIO_PORT, &GPIO_InitStruct);
   HAL_GPIO_WritePin(LED0_GPIO_PORT, LED0_GPIO_PIN, led0LogicState);
-}
-
-static void USER_TIM5_SetCapturePolarity(uint32_t polarity)
-{
-  __HAL_TIM_DISABLE_IT(&htim5, TIM_IT_CC1);
-  __HAL_TIM_SET_CAPTUREPOLARITY(&htim5, TIM5_INPUT_CAPTURE_CHANNEL, polarity);
-  __HAL_TIM_ENABLE_IT(&htim5, TIM_IT_CC1);
 }
 
 static void USER_SetLed0BreathingMode(bool enable)
@@ -166,7 +160,14 @@ static void USER_ProcessSerialCommand(uint8_t rxData)
 
     case (uint8_t)'p':
     case (uint8_t)'P':
-      printf("Latest low pulse width: %lu us\r\n", lastLowPulseWidthUs);
+      if (tim5PulseCaptured)
+      {
+        printf("Latest low pulse width: %lu us\r\n", lastLowPulseWidthUs);
+      }
+      else
+      {
+        printf("No TIM5 pulse captured. Connect PB10 to PA0.\r\n");
+      }
       break;
 
     case (uint8_t)'h':
@@ -229,6 +230,11 @@ int main(void)
   }
 
   if (HAL_TIM_IC_Start_IT(&htim5, TIM5_INPUT_CAPTURE_CHANNEL) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  if (HAL_TIM_IC_Start_IT(&htim5, TIM5_RISING_CAPTURE_CHANNEL) != HAL_OK)
   {
     Error_Handler();
   }
@@ -473,6 +479,15 @@ static void USER_TIM5_Init(void)
   {
     Error_Handler();
   }
+
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_INDIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim5, &sConfigIC, TIM5_RISING_CAPTURE_CHANNEL) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 int __io_putchar(int ch)
@@ -569,22 +584,20 @@ void USER_TIM3_UpdateIRQ(void)
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-  if ((htim->Instance == TIM5) && (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1))
+  if (htim->Instance == TIM5)
   {
-    uint32_t capturedUs = HAL_TIM_ReadCapturedValue(htim, TIM5_INPUT_CAPTURE_CHANNEL);
-
-    if (!tim5WaitingForRisingEdge)
+    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
     {
-      lowPulseStartUs = capturedUs;
+      lowPulseStartUs = HAL_TIM_ReadCapturedValue(htim, TIM5_INPUT_CAPTURE_CHANNEL);
       tim5WaitingForRisingEdge = true;
-      USER_TIM5_SetCapturePolarity(TIM_INPUTCHANNELPOLARITY_RISING);
     }
-    else
+    else if ((htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2) && tim5WaitingForRisingEdge)
     {
+      uint32_t capturedUs = HAL_TIM_ReadCapturedValue(htim, TIM5_RISING_CAPTURE_CHANNEL);
+
       lastLowPulseWidthUs = capturedUs - lowPulseStartUs;
+      tim5PulseCaptured = true;
       tim5WaitingForRisingEdge = false;
-      USER_TIM5_SetCapturePolarity(TIM_INPUTCHANNELPOLARITY_FALLING);
-      printf("TIM5 low pulse width: %lu us\r\n", lastLowPulseWidthUs);
     }
   }
 }
